@@ -1,7 +1,9 @@
-package ch.bielbienne.seraph;
+package com.atlassian.jira.oauthproxy;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.log4j.Logger;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -36,16 +38,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  * @author Christian Loosli
  *
  */
-public class BielBienneAuthenticator extends JiraSeraphAuthenticator
+public class OauthProxyAuthenticator extends JiraSeraphAuthenticator
 {
 
 	// Header we read. Has to be lowercase even if the header is set uppercase in apache
-	private static final String strHeaderName = "x-forwarded-user";
 	private static final long serialVersionUID = 1807345345435345234L;
-	private static final Logger log = Logger.getLogger(BielBienneAuthenticator.class);
+	private static final Logger log = Logger.getLogger(OauthProxyAuthenticator.class);
+	private static final String COOKIE_NAME = "_oauthproxy";
 	
 	// Print additional information and warnings, useful when developing, else it just spams the logs a bit. 
-	private static final boolean useDebug = false; 
+	private static final boolean useDebug = true; 
 
 	/**
 	 * Default method getting the user, first calls the JIRA based method, then checks 
@@ -61,13 +63,29 @@ public class BielBienneAuthenticator extends JiraSeraphAuthenticator
 	{
 
 		Principal user = null; 
-		
+		String username = null;
 		try
 		{
 			// This shall also take care of the user already being logged in, as the parent checks that. 
-			user = super.getUser(request, response);
-			String username = request.getHeader(strHeaderName);
-			                                   		
+			Cookie[] cookies = request.getCookies();
+			Cookie proxyCookie = null;
+			for (Cookie c : cookies) {
+				if (COOKIE_NAME.equals(c.getName())) {
+					proxyCookie = c;
+					break;
+				}
+			}
+			
+			if (proxyCookie != null) {
+				String value = proxyCookie.getValue();
+//				String[] tokens = value.split("|");
+				byte[] decodeBase64 = Base64.decodeBase64(value);
+				if (useDebug) {
+					log.info("Cookie username value:" + value + ",base64 : " + new String(decodeBase64));
+				}
+				username = new String(decodeBase64);
+				user = getUser(username);
+			}
 			// Neither an already existing user nor a forwarded one in the header. 
 			// This will return null, which should have JIRA redirect the user to the configurated login page
 			if ( (user == null) && (username == null))
@@ -81,7 +99,7 @@ public class BielBienneAuthenticator extends JiraSeraphAuthenticator
 			
 			if(useDebug)
 			{
-				log.info("Got " + username + " from header " + strHeaderName);
+				log.info("Got " + username + " from cookie " + COOKIE_NAME);
 			}
 			
 			if (user != null)
@@ -110,14 +128,14 @@ public class BielBienneAuthenticator extends JiraSeraphAuthenticator
 			}
 			catch (Exception e)
 			{
-				log.error("Exception caught: " + e.getMessage() + " :: "  + e);
+				log.error("Exception caught: " + e.getMessage() + " :: " ,e);
 			}
 			        
 	        return user;
 		} 
 		catch (Exception e) // catch class cast exceptions
 		{
-			log.error("Exception caught: " + e.getMessage() + " :: " + e);
+			log.error("Exception caught: " + e.getMessage() + " :: ",e);
 			return user; 
 		}
 	}
